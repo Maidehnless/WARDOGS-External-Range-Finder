@@ -14,7 +14,9 @@ Bearing runs clockwise from north (0 degrees), with positive Y pointing north.
 
 Updates: publish this file as wd_rf.py in the repository's default branch.
 Increase APP_VERSION (major.minor.patch) for each update, e.g. 1.0.1.
-Newer versions install automatically on launch and take effect after restarting.
+Newer versions install before the application window opens.
+RUN ME.vbs invokes --check-updates, then starts a fresh process with --skip-update.
+Keep these launcher flags supported when publishing future versions.
 The previous script is kept beside this file with a .bak suffix.
 """
 
@@ -37,7 +39,7 @@ from urllib.request import Request, urlopen
 import webbrowser
 
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 WEBSITE_URL = "https://www.maidehnless.com"
 REPOSITORY_URL = "https://github.com/Maidehnless/WARDGOS-External-Range-Finder"
 UPDATE_URL = "https://api.github.com/repos/Maidehnless/WARDGOS-External-Range-Finder/contents/wd_rf.py"
@@ -103,8 +105,9 @@ def install_update(path, source, original):
 
 
 def check_for_updates(events, stopped, script_path):
-    """Background work only; the Tk thread displays queued status messages."""
+    """Run before Tk starts; return whether a newer script was installed."""
     remote_version = None
+    updated = False
     try:
         request = Request(UPDATE_URL, headers={
             "User-Agent": f"WardogsRangeFinder/{APP_VERSION}",
@@ -135,7 +138,8 @@ def check_for_updates(events, stopped, script_path):
                 if stopped.is_set():
                     return
                 install_update(script_path, source, original)
-                status = f"Updated to v{remote_version} — restart app"
+                updated = True
+                status = f"Updated to v{remote_version}"
     except HTTPError as error:
         if error.code == 404:
             status = "Update file unavailable — GitHub"
@@ -153,6 +157,20 @@ def check_for_updates(events, stopped, script_path):
                   else "Could not check updates — GitHub")
     if not stopped.is_set():
         events.put(status)
+    return updated
+
+
+def prelaunch_update():
+    events = queue.Queue()
+    updated = check_for_updates(events, threading.Event(), Path(__file__).resolve())
+    # Keep diagnostics available without filling the compact application window.
+    try:
+        log_path = settings_path().with_name("update.log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text("\n".join(list(events.queue)) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return updated
 
 
 def parse_hotkey(text):
@@ -367,13 +385,13 @@ def bearing_degrees(current, destination):
 class DistanceApp:
     def __init__(self, root):
         self.root = root
+        self.fit_id = None
         root.title("WARDOGS Range Finder")
         root.geometry("520x490")
-        root.minsize(520, 490)
-        root.maxsize(520, 490)
+        root.minsize(520, 1)
+        root.maxsize(520, root.winfo_screenheight())
         root.resizable(False, False)
         root.columnconfigure(0, weight=1)
-        root.rowconfigure(0, weight=1)
 
         style = ttk.Style(root)
         if "vista" in style.theme_names():
@@ -397,16 +415,13 @@ class DistanceApp:
         for sequence in ("<Button-1>", "<Return>", "<space>"):
             credit.bind(sequence, lambda event: webbrowser.open_new_tab(WEBSITE_URL))
 
-        self.update_status = tk.StringVar(root, "Checking for updates…")
-        footer = ttk.Label(root, textvariable=self.update_status, foreground="#1565c0",
+        self.update_status = tk.StringVar(root, f"Ver. {APP_VERSION}")
+        footer = ttk.Label(panel, textvariable=self.update_status, foreground="#1565c0",
                            font=("Segoe UI", -11, "underline"), cursor="hand2",
                            takefocus=True, wraplength=496, anchor="w")
-        footer.grid(row=1, column=0, sticky="ew", padx=12, pady=(4, 10))
+        footer.grid(row=11, column=0, sticky="ew", pady=(5, 8))
         for sequence in ("<Button-1>", "<Return>", "<space>"):
             footer.bind(sequence, lambda event: webbrowser.open_new_tab(REPOSITORY_URL))
-        self.update_events = queue.Queue()
-        self.update_stopped = threading.Event()
-        self.update_poll_id = None
 
         self.current = tk.StringVar(root)
         self.destination = tk.StringVar(root)
@@ -456,8 +471,10 @@ class DistanceApp:
         shortcuts.columnconfigure(1, weight=1)
         for row, label in enumerate(("Current position", "Destination")):
             ttk.Label(shortcuts, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
-            entry = ttk.Entry(shortcuts, textvariable=self.key_displays[row],
-                              width=16, font=("Segoe UI", -13), state="readonly", cursor="hand2")
+            # Native ttk themes can ignore fieldbackground for readonly entries.
+            entry = tk.Entry(shortcuts, textvariable=self.key_displays[row],
+                             width=16, font=("Segoe UI", -13), state="readonly", cursor="hand2",
+                             relief="solid", borderwidth=1, highlightthickness=1)
             entry.grid(row=row, column=1, sticky="ew", pady=4)
             entry.bind("<Button-1>", lambda event, index=row: self.begin_capture(index))
             entry.bind("<Button>", lambda event: "break")
@@ -477,11 +494,13 @@ class DistanceApp:
             row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
         # Share one status area so simultaneous messages cannot push the footer out.
         self.feedback = tk.StringVar(root)
-        ttk.Label(panel, textvariable=self.feedback, wraplength=496, anchor="nw",
-                  font=("Segoe UI", -12)).grid(row=10, column=0, sticky="ew", pady=(6, 0))
+        self.feedback_label = ttk.Label(panel, textvariable=self.feedback, wraplength=496, anchor="nw",
+                                        font=("Segoe UI", -12))
+        self.feedback_label.grid(row=10, column=0, sticky="ew", pady=(6, 0))
         for variable in (self.status, self.hotkey_status, self.clipboard_status):
             variable.trace_add("write", self.refresh_feedback)
         self.refresh_feedback()
+        self.refresh_key_displays()
         if sys.platform == "win32":
             self.hotkeys = WindowsHotkeys()
             self.hotkeys.start()
@@ -492,21 +511,25 @@ class DistanceApp:
             self.hotkey_status.set("Global clipboard shortcuts require Windows. Manual entry still works.")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.entries[0].focus_set()
-        threading.Thread(target=check_for_updates,
-                         args=(self.update_events, self.update_stopped, Path(__file__).resolve()),
-                         daemon=True).start()
-        self.update_poll_id = root.after(100, self.poll_updates)
+        self.schedule_fit()
 
     def refresh_feedback(self, *_):
-        self.feedback.set(self.status.get() or self.hotkey_status.get() or self.clipboard_status.get())
+        text = self.status.get() or self.hotkey_status.get() or self.clipboard_status.get()
+        self.feedback.set(text)
+        if text:
+            self.feedback_label.grid()
+        else:
+            self.feedback_label.grid_remove()
+        self.schedule_fit()
 
-    def poll_updates(self):
-        try:
-            while True:
-                self.update_status.set(self.update_events.get_nowait())
-        except queue.Empty:
-            pass
-        self.update_poll_id = self.root.after(100, self.poll_updates)
+    def schedule_fit(self):
+        if self.fit_id is None:
+            self.fit_id = self.root.after_idle(self.fit_height)
+
+    def fit_height(self):
+        self.root.update_idletasks()
+        self.root.geometry(f"520x{self.root.winfo_reqheight()}")
+        self.fit_id = None
 
     def refresh_key_displays(self):
         for index, (display, variable) in enumerate(zip(self.key_displays, self.key_variables)):
@@ -514,10 +537,19 @@ class DistanceApp:
                 display.set("Press a key…" if self.capture_ready else "Preparing…")
             else:
                 display.set(variable.get() or "Not assigned")
+            capturing = index == self.capture_index
+            background = "#e8f1ff" if capturing else ("#ffffff" if variable.get() else "#ffd6d6")
+            foreground = "#1f2937" if variable.get() or capturing else "#a31515"
+            border = "#1565c0" if capturing else ("#9ca3af" if variable.get() else "#c62828")
+            self.key_entries[index].configure(readonlybackground=background, disabledbackground=background,
+                                               foreground=foreground, disabledforeground=foreground,
+                                               highlightbackground=border, highlightcolor=border)
 
     def set_key_controls_pending(self, pending):
         self.config_pending = pending
-        for control in self.key_entries + self.key_buttons:
+        for entry in self.key_entries:
+            entry.configure(state="disabled" if pending else "readonly")
+        for control in self.key_buttons:
             control.state(["disabled"] if pending else ["!disabled"])
 
     def begin_capture(self, index):
@@ -643,8 +675,6 @@ class DistanceApp:
                             except OSError:
                                 detail = "Keys work this session, but settings could not be saved."
                     self.save_pending = False
-                    if not any(self.active_keys):
-                        detail = f"{detail} No clipboard shortcuts are active.".strip()
                     self.hotkey_status.set(detail)
                 elif event == "error":
                     self.active_keys = ("", "")
@@ -673,9 +703,8 @@ class DistanceApp:
         self.clipboard_status.set("Copies current coordinates from clipboard")
 
     def close(self):
-        self.update_stopped.set()
-        if self.update_poll_id is not None:
-            self.root.after_cancel(self.update_poll_id)
+        if self.fit_id is not None:
+            self.root.after_cancel(self.fit_id)
         if self.poll_id is not None:
             self.root.after_cancel(self.poll_id)
         if self.hotkeys is not None:
@@ -718,10 +747,16 @@ class DistanceApp:
 
 
 def main():
+    if "--check-updates" in sys.argv[1:]:
+        return 10 if prelaunch_update() else 0
+    if "--skip-update" not in sys.argv[1:] and prelaunch_update():
+        # Direct .py launches also load updated code before creating any window.
+        os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "--skip-update"])
     root = tk.Tk()
     DistanceApp(root)
     root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
