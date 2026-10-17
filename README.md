@@ -5,10 +5,9 @@ The WARDOGS Range Finder calculates the straight-line distance between two locat
 
 ## Getting Started
 
-1. Ensure `python_installer.bat`, `RUN ME.vbs`, and `wd_rf.py` are all located in the same folder.
-2. **First-time setup:** Double-click **INSTALL PYTHON.bat** to automatically check for and install the required version of Python. When prompted, select **Yes** to grant administrator permissions.
-3. Once installation is complete, double-click **RUN ME.vbs** to launch the Range Finder.
-4. Leave the Range Finder running while playing WARDOGS.
+1. Ensure `RUN ME.vbs`, and `wd_rf.py` are all located in the same folder.
+2. Once installation is complete, double-click **RUN ME.vbs** to launch the Range Finder.
+3. Leave the Range Finder running while playing WARDOGS.
 
 **Note:** Python installation is only required once. If a compatible version is already installed, the installer will skip installation. After the initial setup, simply use **RUN ME.vbs** to launch the Range Finder.
 
