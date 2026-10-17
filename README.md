@@ -5,7 +5,7 @@ The WARDOGS Range Finder calculates the straight-line distance between two locat
 
 ## Getting Started
 
-1. Ensure `RUN ME.vbs`, and `wd_rf.py` are all located in the same folder.
+1. Ensure `RUN ME.vbs` and `wd_rf.py` are located in the same folder.
 2. Once installation is complete, double-click **RUN ME.vbs** to launch the Range Finder.
 3. Leave the Range Finder running while playing WARDOGS.
 
@@ -16,15 +16,15 @@ The WARDOGS Range Finder calculates the straight-line distance between two locat
 ## Step 1 — Set Point A (Current Location)
 
 1. While in-game, open your map.
-2. Right-click your current location. The coordinates will automatically appear in the in-game chat input.
+2. Right-click your current location and select **Mark Coordinates**. The game will place the coordinates in the in-game chat input.
 3. Press **Ctrl + A** to highlight the coordinates.
 4. Press **Ctrl + C** to copy them.
 5. Press **F9** to load the copied coordinates into the Range Finder's **Current position** field.
 
 ## Step 2 — Set Point B (Destination)
 
-1. Open your map and right-click your intended destination.
-2. The destination coordinates will appear in chat.
+1. Open your map, right-click your intended destination, and select **Mark Coordinates**.
+2. The destination coordinates will appear in the chat input.
 3. Press **Ctrl + A**, followed by **Ctrl + C**, to copy the new coordinates.
 4. Press **F10** to load them into the **Destination** field.
 
@@ -33,6 +33,22 @@ The WARDOGS Range Finder calculates the straight-line distance between two locat
 Once both locations are entered, the Range Finder will automatically calculate and display the distance between Point A and Point B in metres.
 
 No additional input is needed.
+
+## How It Works & Fair Play
+
+**Where do the coordinates come from?**
+
+Directly from the **Windows clipboard**—not from the game's memory. WARDOGS already provides coordinates through its **Mark Coordinates** map option. After the game places them in the chat input, you copy them using **Ctrl + A** and **Ctrl + C**. The Range Finder reads that copied text when you use its shortcut and calculates the distance between the two points. You can also enter coordinates manually.
+
+**Does it interact with the game or pose an anti-cheat risk?**
+
+The Range Finder is a standalone calculator. It **does not read, modify, or inject code into the game's memory**. It uses coordinates that the game itself makes available to players, copied through the normal Windows clipboard, and performs its calculations outside the game. This avoids the game-memory interactions commonly associated with cheats and related anti-cheat detection.
+
+Its purpose is **accessibility and convenience**, not to reveal hidden information or provide an unfair gameplay advantage. Any player can obtain the same coordinates in-game and calculate the same straight-line distance manually; the tool simply makes that calculation quicker and easier.
+
+**Has Bulkhead approved its use?**
+
+Not specifically. Although the tool does not access game memory or provide information unavailable in-game, **no third-party tool can be guaranteed to be exempt from anti-cheat detection or permitted under a game's rules without confirmation from the developer**. Bulkhead's rules and any future changes to them still apply.
 
 ## Additional Information
 
