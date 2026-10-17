@@ -35,13 +35,6 @@ Once both locations are entered, the Range Finder will automatically calculate a
 
 No additional input is needed.
 
-## Keyboard Shortcuts
-
-| Shortcut  | Action                            |
-|           |                                   |
-| F9        | Set Point A — Current position    |
-| F10       | Set Point B — Destination         |
-
 ## Additional Information
 
 - **New measurements:** Simply repeat the process to update either point. The distance recalculates automatically.
