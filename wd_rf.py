@@ -1,4 +1,4 @@
-"""WARDOGS map distance calculator. Run with Python 3: python wardogs_distance.py
+"""WARDOGS map distance calculator. Run with Python 3: python wd_rf.py
 
 Uses Python's built-in tkinter (included in the standard Windows installer).
 On Windows, copy coordinates and press F9 for current position or F10 for
@@ -11,9 +11,16 @@ Scale: 100 metres per coordinate unit, as documented by the community tool:
 https://github.com/apollyon-sys/wardogs-calculator/blob/main/docs/maps.md
 Calculates horizontal straight-line distance; terrain and routes are excluded.
 Bearing runs clockwise from north (0 degrees), with positive Y pointing north.
+
+Updates: publish this file as wd_rf.py in the repository's default branch.
+Increase APP_VERSION (major.minor.patch) for each update, e.g. 1.0.1.
+Newer versions install automatically on launch and take effect after restarting.
+The previous script is kept beside this file with a .bak suffix.
 """
 
+import ast
 import ctypes
+from http.client import HTTPException
 import json
 import math
 import os
@@ -21,11 +28,20 @@ from pathlib import Path
 import queue
 import re
 import sys
+import tempfile
 import threading
 import tkinter as tk
 from tkinter import ttk
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+import webbrowser
 
 
+APP_VERSION = "1.1.0"
+WEBSITE_URL = "https://www.maidehnless.com"
+REPOSITORY_URL = "https://github.com/Maidehnless/WARDGOS-External-Range-Finder"
+UPDATE_URL = "https://api.github.com/repos/Maidehnless/WARDGOS-External-Range-Finder/contents/wd_rf.py"
+MAX_UPDATE_BYTES = 1024 * 1024
 METRES_PER_UNIT = 100.0
 MAX_COORDINATE = 164.0
 DEFAULT_HOTKEYS = ("F9", "F10")
@@ -37,6 +53,106 @@ NAMED_KEYS = {"SPACE": 0x20, "TAB": 0x09, "ENTER": 0x0D,
 
 def settings_path():
     return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "WardogsDistance" / "settings.json"
+
+
+def version_tuple(version):
+    """Compare numeric versions, so 1.0.10 correctly follows 1.0.9."""
+    if not isinstance(version, str) or not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError("APP_VERSION must use major.minor.patch format.")
+    return tuple(int(part) for part in version.split("."))
+
+
+def source_version(source):
+    """Read a literal version without executing the downloaded Python code."""
+    tree = ast.parse(source, filename="wd_rf.py")
+    compile(tree, "wd_rf.py", "exec")  # Reject code incompatible with this Python.
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id == "APP_VERSION" for target in node.targets):
+            version = ast.literal_eval(node.value)
+            version_tuple(version)
+            return version
+    return None
+
+
+def atomic_write(path, content, mode=None):
+    """Write alongside the destination, then replace it in one filesystem operation."""
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=path.name + ".",
+                                         suffix=".tmp", delete=False) as output:
+            temporary = Path(output.name)
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        if mode is not None:
+            temporary.chmod(mode)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def install_update(path, source, original):
+    """Preserve the old script; do not overwrite a file changed during download."""
+    if path.read_bytes() != original:
+        raise OSError("The script changed while the update was downloading.")
+    mode = path.stat().st_mode & 0o777
+    atomic_write(path.with_suffix(path.suffix + ".bak"), original, mode)
+    atomic_write(path, source, mode)
+
+
+def check_for_updates(events, stopped, script_path):
+    """Background work only; the Tk thread displays queued status messages."""
+    remote_version = None
+    try:
+        request = Request(UPDATE_URL, headers={
+            "User-Agent": f"WardogsRangeFinder/{APP_VERSION}",
+            "Accept": "application/vnd.github.raw+json",
+            "Cache-Control": "no-cache",
+        })
+        with urlopen(request, timeout=10) as response:
+            source = response.read(MAX_UPDATE_BYTES + 1)
+        if stopped.is_set():
+            return
+        if len(source) > MAX_UPDATE_BYTES:
+            raise ValueError("Update exceeds the size limit.")
+        remote_version = source_version(source)
+        if remote_version is None:
+            status = "Update source needs a version — GitHub"
+        elif version_tuple(remote_version) <= version_tuple(APP_VERSION):
+            status = f"Up to date · v{APP_VERSION}"
+        elif getattr(sys, "frozen", False):
+            status = f"v{remote_version} available — download from GitHub"
+        else:
+            original = script_path.read_bytes()
+            # Avoid an older running instance overwriting an already installed update.
+            disk_version = source_version(original)
+            if disk_version is None or version_tuple(disk_version) != version_tuple(APP_VERSION):
+                status = "Script changed — restart to check updates"
+            else:
+                events.put(f"Installing v{remote_version}…")
+                if stopped.is_set():
+                    return
+                install_update(script_path, source, original)
+                status = f"Updated to v{remote_version} — restart app"
+    except HTTPError as error:
+        if error.code == 404:
+            status = "Update file unavailable — GitHub"
+        elif error.code in (403, 429):
+            status = "Update check limited by GitHub — try next launch"
+        else:
+            status = "Could not check updates — GitHub"
+    except (URLError, TimeoutError, HTTPException):
+        status = "Could not check updates — offline or GitHub unavailable"
+    except (ValueError, SyntaxError, UnicodeError, TypeError, RecursionError):
+        status = "Update file invalid — current version kept"
+    except OSError:
+        status = (f"v{remote_version} available — install manually from GitHub"
+                  if remote_version and version_tuple(remote_version) > version_tuple(APP_VERSION)
+                  else "Could not check updates — GitHub")
+    if not stopped.is_set():
+        events.put(status)
 
 
 def parse_hotkey(text):
@@ -252,20 +368,45 @@ class DistanceApp:
     def __init__(self, root):
         self.root = root
         root.title("WARDOGS Range Finder")
-        root.minsize(490, 400)
+        root.geometry("520x490")
+        root.minsize(520, 490)
+        root.maxsize(520, 490)
+        root.resizable(False, False)
         root.columnconfigure(0, weight=1)
         root.rowconfigure(0, weight=1)
 
         style = ttk.Style(root)
         if "vista" in style.theme_names():
             style.theme_use("vista")
-        style.configure("TLabel", font=("Segoe UI", 10))
+        # Pixel fonts keep the fixed-size layout consistent with display scaling.
+        style.configure("TLabel", font=("Segoe UI", -13))
+        style.configure("TButton", font=("Segoe UI", -12))
+        style.configure("TLabelframe.Label", font=("Segoe UI", -13))
 
-        panel = ttk.Frame(root, padding=16)
-        panel.grid(sticky="nsew")
+        panel = ttk.Frame(root, padding=(12, 12, 12, 0))
+        panel.grid(row=0, column=0, sticky="nsew")
         panel.columnconfigure(0, weight=1)
-        ttk.Label(panel, text="WARDOGS Range Finder", font=("Segoe UI", 17, "bold")).grid(
-            row=0, column=0, sticky="w", pady=(0, 10))
+        header = ttk.Frame(panel)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        header.columnconfigure(0, weight=1)
+        ttk.Label(header, text="WARDOGS Range Finder", font=("Segoe UI", -21, "bold")).grid(
+            row=0, column=0, sticky="w")
+        credit = ttk.Label(header, text="Made by Maidehnless", foreground="#1565c0",
+                           font=("Segoe UI", -11, "underline"), cursor="hand2", takefocus=True)
+        credit.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        for sequence in ("<Button-1>", "<Return>", "<space>"):
+            credit.bind(sequence, lambda event: webbrowser.open_new_tab(WEBSITE_URL))
+
+        self.update_status = tk.StringVar(root, "Checking for updates…")
+        footer = ttk.Label(root, textvariable=self.update_status, foreground="#1565c0",
+                           font=("Segoe UI", -11, "underline"), cursor="hand2",
+                           takefocus=True, wraplength=496, anchor="w")
+        footer.grid(row=1, column=0, sticky="ew", padx=12, pady=(4, 10))
+        for sequence in ("<Button-1>", "<Return>", "<space>"):
+            footer.bind(sequence, lambda event: webbrowser.open_new_tab(REPOSITORY_URL))
+        self.update_events = queue.Queue()
+        self.update_stopped = threading.Event()
+        self.update_poll_id = None
 
         self.current = tk.StringVar(root)
         self.destination = tk.StringVar(root)
@@ -279,18 +420,17 @@ class DistanceApp:
             ("Destination", self.destination),
         )):
             ttk.Label(panel, text=label).grid(row=1 + row * 2, column=0, sticky="w")
-            entry = ttk.Entry(panel, textvariable=variable, font=("Segoe UI", 12))
-            entry.grid(row=2 + row * 2, column=0, sticky="ew", pady=(3, 8), ipady=3)
+            entry = ttk.Entry(panel, textvariable=variable, font=("Segoe UI", -16))
+            entry.grid(row=2 + row * 2, column=0, sticky="ew", pady=(3, 7), ipady=2)
             self.entries.append(entry)
             variable.trace_add("write", self.calculate)
 
-        ttk.Label(panel, textvariable=self.result, font=("Segoe UI", 20, "bold")).grid(
+        ttk.Label(panel, textvariable=self.result, font=("Segoe UI", -27, "bold")).grid(
             row=5, column=0, sticky="w")
-        ttk.Label(panel, textvariable=self.bearing, font=("Segoe UI", 16, "bold")).grid(
+        ttk.Label(panel, textvariable=self.bearing, font=("Segoe UI", -21, "bold")).grid(
             row=6, column=0, sticky="w", pady=(2, 0))
         ttk.Label(panel, textvariable=self.equation, wraplength=450).grid(
             row=7, column=0, sticky="w", pady=(4, 0))
-        self.add_message(panel, self.status, row=8, foreground="#b42318")
 
         keys = load_hotkeys()
         self.key_variables = [tk.StringVar(root, value) for value in keys]
@@ -311,13 +451,13 @@ class DistanceApp:
         self.hotkeys = None
         self.poll_id = None
         self.save_pending = False
-        shortcuts = ttk.LabelFrame(panel, text="Clipboard keybinds", padding=10)
+        shortcuts = ttk.LabelFrame(panel, text="Clipboard keybinds", padding=8)
         shortcuts.grid(row=9, column=0, sticky="ew", pady=(10, 0))
         shortcuts.columnconfigure(1, weight=1)
         for row, label in enumerate(("Current position", "Destination")):
-            ttk.Label(shortcuts, text=label).grid(row=row, column=0, sticky="w", padx=(0, 16), pady=4)
+            ttk.Label(shortcuts, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=4)
             entry = ttk.Entry(shortcuts, textvariable=self.key_displays[row],
-                              width=22, state="readonly", cursor="hand2")
+                              width=16, font=("Segoe UI", -13), state="readonly", cursor="hand2")
             entry.grid(row=row, column=1, sticky="ew", pady=4)
             entry.bind("<Button-1>", lambda event, index=row: self.begin_capture(index))
             entry.bind("<Button>", lambda event: "break")
@@ -327,16 +467,21 @@ class DistanceApp:
             self.key_entries.append(entry)
             for column, (text, value) in enumerate((("Restore", DEFAULT_HOTKEYS[row]),
                                                    ("Remove", "")), 2):
-                button = ttk.Button(shortcuts, text=text, width=8,
+                button = ttk.Button(shortcuts, text=text, width=7,
                                     command=lambda index=row, key=value: self.set_keybind(index, key))
                 button.grid(row=row, column=column, padx=(6, 0), pady=4)
                 self.key_buttons.append(button)
-        ttk.Label(shortcuts, text="Click a box, then press a key combination.\n"
-                  "Esc cancels · Backspace removes · Changes save automatically.",
-                  wraplength=500).grid(
+        ttk.Label(shortcuts, text="Click a box and press a key. Changes save automatically.\n"
+                  "Esc: cancel · Backspace: remove · Ctrl / Shift / Alt: modifiers",
+                  font=("Segoe UI", -12), wraplength=472).grid(
             row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
-        self.add_message(panel, self.hotkey_status, row=10)
-        self.add_message(panel, self.clipboard_status, row=11)
+        # Share one status area so simultaneous messages cannot push the footer out.
+        self.feedback = tk.StringVar(root)
+        ttk.Label(panel, textvariable=self.feedback, wraplength=496, anchor="nw",
+                  font=("Segoe UI", -12)).grid(row=10, column=0, sticky="ew", pady=(6, 0))
+        for variable in (self.status, self.hotkey_status, self.clipboard_status):
+            variable.trace_add("write", self.refresh_feedback)
+        self.refresh_feedback()
         if sys.platform == "win32":
             self.hotkeys = WindowsHotkeys()
             self.hotkeys.start()
@@ -347,21 +492,21 @@ class DistanceApp:
             self.hotkey_status.set("Global clipboard shortcuts require Windows. Manual entry still works.")
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.entries[0].focus_set()
+        threading.Thread(target=check_for_updates,
+                         args=(self.update_events, self.update_stopped, Path(__file__).resolve()),
+                         daemon=True).start()
+        self.update_poll_id = root.after(100, self.poll_updates)
 
-    @staticmethod
-    def add_message(parent, variable, row, **options):
-        """Collapse unused message rows to keep the window compact."""
-        label = ttk.Label(parent, textvariable=variable, wraplength=450, **options)
-        label.grid(row=row, column=0, sticky="w", pady=(6, 0))
+    def refresh_feedback(self, *_):
+        self.feedback.set(self.status.get() or self.hotkey_status.get() or self.clipboard_status.get())
 
-        def update_visibility(*_):
-            if variable.get():
-                label.grid()
-            else:
-                label.grid_remove()
-
-        variable.trace_add("write", update_visibility)
-        update_visibility()
+    def poll_updates(self):
+        try:
+            while True:
+                self.update_status.set(self.update_events.get_nowait())
+        except queue.Empty:
+            pass
+        self.update_poll_id = self.root.after(100, self.poll_updates)
 
     def refresh_key_displays(self):
         for index, (display, variable) in enumerate(zip(self.key_displays, self.key_variables)):
@@ -528,6 +673,9 @@ class DistanceApp:
         self.clipboard_status.set("Copies current coordinates from clipboard")
 
     def close(self):
+        self.update_stopped.set()
+        if self.update_poll_id is not None:
+            self.root.after_cancel(self.update_poll_id)
         if self.poll_id is not None:
             self.root.after_cancel(self.poll_id)
         if self.hotkeys is not None:
