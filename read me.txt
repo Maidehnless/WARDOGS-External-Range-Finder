@@ -1,0 +1,68 @@
+# WARDOGS Range Finder
+**Quick Start & How to Use**
+
+The WARDOGS Range Finder calculates the straight-line distance between two locations on the in-game map, displaying the result in metres.
+
+## Getting Started
+
+1. Ensure `python_installer.bat`, `RUN ME.vbs`, and `wd_rf.py` are all located in the same folder.
+2. **First-time setup:** Double-click **INSTALL PYTHON.bat** to automatically check for and install the required version of Python. When prompted, select **Yes** to grant administrator permissions.
+3. Once installation is complete, double-click **RUN ME.vbs** to launch the Range Finder.
+4. Leave the Range Finder running while playing WARDOGS.
+
+**Note:** Python installation is only required once. If a compatible version is already installed, the installer will skip installation. After the initial setup, simply use **RUN ME.vbs** to launch the Range Finder.
+
+*Requires Windows. An internet connection is required if Python needs to be downloaded.*
+
+## Step 1 — Set Point A (Current Location)
+
+1. While in-game, open your map.
+2. Right-click your current location. The coordinates will automatically appear in the in-game chat input.
+3. Press **Ctrl + A** to highlight the coordinates.
+4. Press **Ctrl + C** to copy them.
+5. Press **F9** to load the copied coordinates into the Range Finder's **Current position** field.
+
+## Step 2 — Set Point B (Destination)
+
+1. Open your map and right-click your intended destination.
+2. The destination coordinates will appear in chat.
+3. Press **Ctrl + A**, followed by **Ctrl + C**, to copy the new coordinates.
+4. Press **F10** to load them into the **Destination** field.
+
+## Step 3 — Read the Distance
+
+Once both locations are entered, the Range Finder will automatically calculate and display the distance between Point A and Point B in metres.
+
+No additional input is needed.
+
+## Keyboard Shortcuts
+
+| Shortcut  | Action                            |
+|           |                                   |
+| F9        | Set Point A — Current position    |
+| F10       | Set Point B — Destination         |
+
+## Additional Information
+
+- **New measurements:** Simply repeat the process to update either point. The distance recalculates automatically.
+- **Custom shortcuts:** Change F9 or F10 in the Clipboard keybinds section and select Apply keybinds.
+- **Manual entry:** Coordinates can also be pasted directly into either field, for example `x80.27, y82.27`.
+- **Distance accuracy:** Results represent horizontal straight-line distance and do not account for obstacles, changes in elevation, or travel routes.
+
+## Troubleshooting
+
+**Nothing happens when pressing F9 or F10?**
+
+Ensure you've copied the coordinates using Ctrl + C and that the Range Finder is running. Check the shortcut status in the application.
+
+**Getting an invalid coordinates error?**
+
+Make sure only the coordinates have been copied, in a supported format such as `x80.27, y82.27`.
+
+**Not getting a distance?**
+
+Ensure both Current position and Destination contain valid coordinates.
+
+**Application not opening?**
+
+Check that Python 3 and the Windows Python launcher are installed, and that both program files are stored together.
