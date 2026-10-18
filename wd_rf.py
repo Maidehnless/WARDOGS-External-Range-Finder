@@ -39,10 +39,10 @@ from urllib.request import Request, urlopen
 import webbrowser
 
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 WEBSITE_URL = "https://www.maidehnless.com"
-REPOSITORY_URL = "https://github.com/Maidehnless/WARDGOS-External-Range-Finder"
-UPDATE_URL = "https://api.github.com/repos/Maidehnless/WARDGOS-External-Range-Finder/contents/wd_rf.py"
+REPOSITORY_URL = "https://github.com/Maidehnless/WARDOGS-External-Range-Finder"
+UPDATE_URL = "https://api.github.com/repos/Maidehnless/WARDOGS-External-Range-Finder/contents/wd_rf.py"
 MAX_UPDATE_BYTES = 1024 * 1024
 METRES_PER_UNIT = 100.0
 MAX_COORDINATE = 164.0
